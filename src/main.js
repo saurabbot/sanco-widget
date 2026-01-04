@@ -1,11 +1,14 @@
 import './styles.css';
+import config from './config';
 
 class SancoChatbot {
   constructor() {
     this.isOpen = false;
+    this.domain = config.apiUrl;
     this.messages = [
-      { type: 'bot', text: 'Hello! How can I help you today?' }
-    ];
+        { type: 'bot', text: 'Hello! How can I help you today?' }
+      ];
+    this.isTyping = false;
     this.init();
   }
 
@@ -73,8 +76,17 @@ class SancoChatbot {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
           </div>
+          <div class="chat-actions">
+            <button class="talk-to-us-button" id="talk-to-us">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="button-icon">
+                <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+              </svg>
+              Talk to us
+            </button>
+          </div>
           <div class="chat-watermark">
-            Powered by <span>Propulsion</span>
+            Powered by <a href="https://propulsion.world/" target="_blank" rel="noopener noreferrer">Propulsion</a>
           </div>
         </div>
         <button class="launcher-button ${this.isOpen ? 'open' : ''}" id="launcher">
@@ -91,12 +103,32 @@ class SancoChatbot {
     const sendButton = this.shadow.getElementById('send-button');
     const input = this.shadow.getElementById('message-input');
     const chatWindow = this.shadow.querySelector('.chat-window');
+    const talkToUs = this.shadow.getElementById('talk-to-us');
+    const watermarkLink = this.shadow.querySelector('.chat-watermark a');
 
-    launcher.addEventListener('click', () => {
+    const getAllPreviousMessages = async () => {
+      const storedSession = localStorage.getItem('sanco_chat_session');
+      const API_URL = `${this.domain}/api/v1/chat/messages`;
+      const response = await fetch(API_URL, {
+        method: 'GET',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-UUID': storedSession || ''
+        },
+      });
+      const data = await response.json();
+      return data;
+    }
+    launcher.addEventListener('click', async () => {
       this.isOpen = !this.isOpen;
       chatWindow.classList.toggle('open', this.isOpen);
       launcher.classList.toggle('open', this.isOpen);
 
+      this.trackEvent('widget_toggle', { action: this.isOpen ? 'open' : 'close' });
+
+      const previousMessages = await getAllPreviousMessages();
+      console.log(previousMessages);
       // Update icon
       if (this.isOpen) {
         launcher.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
@@ -108,11 +140,15 @@ class SancoChatbot {
 
     const sendMessage = async () => {
       const text = input.value.trim();
-      if (!text) return;
+      if (!text || this.isTyping) return;
 
       this.addMessage('user', text);
       input.value = '';
-      const API_URL = 'http://localhost:8000/api/v1/chat/message';
+      this.showTypingIndicator();
+      this.trackEvent('message_sent', { text_length: text.length });
+
+      const storedSession = localStorage.getItem('sanco_chat_session');
+      const API_URL = `${this.domain}/api/v1/chat/message`;
 
       try {
         const response = await fetch(API_URL, {
@@ -120,6 +156,7 @@ class SancoChatbot {
           mode: 'cors',
           headers: {
             'Content-Type': 'application/json',
+            'X-Session-UUID': storedSession || ''
           },
           body: JSON.stringify({ message: text }),
         });
@@ -127,19 +164,78 @@ class SancoChatbot {
         if (!response.ok) throw new Error('Network response was not ok');
 
         const data = await response.json();
-        // Assuming the backend returns { reply: "..." } or { message: "..." }
-        // Adjust based on actual API response structure
+        
+        if (data.session_uuid) {
+          localStorage.setItem('sanco_chat_session', data.session_uuid);
+        }
+
+        this.hideTypingIndicator();
         this.addMessage('bot', data.reply || data.response || data.message || "I received your message!");
       } catch (error) {
         console.error('Error:', error);
+        this.hideTypingIndicator();
         this.addMessage('bot', "Sorry, I'm having trouble connecting to the assistant. Please try again later.");
       }
     };
+   
 
     sendButton.addEventListener('click', sendMessage);
     input.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') sendMessage();
     });
+
+    talkToUs.addEventListener('click', () => {
+      this.trackEvent('talk_to_us_click');
+    });
+
+    watermarkLink.addEventListener('click', () => {
+      this.trackEvent('watermark_click');
+    });
+
+    // Track clicks on the host website (outside the shadow DOM)
+    document.addEventListener('click', (e) => {
+      // Filter for meaningful interactive elements
+      const target = e.target.closest('a, button, [role="button"]');
+      if (target && !this.shadow.contains(target)) {
+        this.trackEvent('website_click', {
+          element: target.tagName.toLowerCase(),
+          text: target.innerText?.trim().slice(0, 50),
+          href: target.href || null,
+          id: target.id || null,
+          path: window.location.pathname
+        });
+      }
+    }, true); // Use capture to ensure we see the click even if stopPropagation is called later
+  }
+
+  async trackEvent(eventType, metaData = {}) {
+    const storedSession = localStorage.getItem('sanco_chat_session');
+    const API_URL = `${this.domain}/api/v1/analytics/events`;
+
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-UUID': storedSession || ''
+        },
+        body: JSON.stringify({
+          event_type: eventType,
+          meta_data: metaData,
+          session_uuid: storedSession || null
+        }),
+      });
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (data.session_uuid) {
+        localStorage.setItem('sanco_chat_session', data.session_uuid);
+      }
+    } catch (error) {
+      console.error('Analytics Error:', error);
+    }
   }
 
   addMessage(type, text) {
@@ -150,6 +246,29 @@ class SancoChatbot {
     msgDiv.textContent = text;
     content.appendChild(msgDiv);
     content.scrollTop = content.scrollHeight;
+  }
+
+  showTypingIndicator() {
+    this.isTyping = true;
+    const content = this.shadow.getElementById('chat-content');
+    const typingDiv = document.createElement('div');
+    typingDiv.id = 'typing-indicator';
+    typingDiv.className = 'typing-indicator';
+    typingDiv.innerHTML = `
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+    `;
+    content.appendChild(typingDiv);
+    content.scrollTop = content.scrollHeight;
+  }
+
+  hideTypingIndicator() {
+    this.isTyping = false;
+    const indicator = this.shadow.getElementById('typing-indicator');
+    if (indicator) {
+      indicator.remove();
+    }
   }
 }
 
