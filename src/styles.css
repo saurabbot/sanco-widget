@@ -254,6 +254,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 
 .talk-to-us-button .button-icon {

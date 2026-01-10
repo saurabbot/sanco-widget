@@ -77,13 +77,13 @@ class SancoChatbot {
             </button>
           </div>
           <div class="chat-actions">
-            <button class="talk-to-us-button" id="talk-to-us">
+            <a href="http://localhost:5173/meeting" target="_blank" rel="noopener noreferrer" class="talk-to-us-button" id="talk-to-us">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="button-icon">
                 <polygon points="23 7 16 12 23 17 23 7"></polygon>
                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
               </svg>
               Talk to us
-            </button>
+            </a>
           </div>
           <div class="chat-watermark">
             Powered by <a href="https://propulsion.world/" target="_blank" rel="noopener noreferrer">Propulsion</a>
